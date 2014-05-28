@@ -1,4 +1,6 @@
-fs = require "fs"
+fs = require 'fs'
+async = require 'async'
+multiparty = require 'multiparty'
 db = require('../helpers/db_connect_helper').db_connect()
 deleteFiles = require('../helpers/utils').deleteFiles
 dbHelper = require '../lib/db_remove_helper'
@@ -7,50 +9,93 @@ dbHelper = require '../lib/db_remove_helper'
 
 # POST /data/:id/binaries
 module.exports.add = (req, res, next) ->
-    attach = (binary, name, file, doc) ->
-        fileData =
-            name: name
-            "content-type": file.type
-        stream = db.saveAttachment binary, fileData, (err, binDoc) ->
-            if err
-                console.log "[Attachment] err: " + JSON.stringify err
-                deleteFiles req.files
-                next new Error err.error
+    async.waterfall [
+        # check the request body size (~ file size)
+        (done) ->
+            console.log "check size"
+            contentLength = req.header 'content-length'
+            maxFileSize = require('../config').maxFileSize
+            if contentLength > maxFileSize
+                error = new Error "The file is too big (>#{maxFileSize}B)"
+                error.status = 400
+            done error
 
-            else
-                bin =
-                    id: binDoc.id
-                    rev: binDoc.rev
-                if doc.binary
-                    newBin = doc.binary
+        # retrieve data from HTTP request
+        (callback) ->
+            console.log "parse http request"
+            form = new multiparty.Form()
+            # fields that should be sent with the file
+            expectedFields = ['name']
+            b = null
+            async.parallel [
+                (done) ->
+                    fields = {}
+                    form.on 'field', (name, value) ->
+                        fields[name] = value if name in expectedFields
+                        if Object.keys(fields).length is expectedFields.length
+                            done null, fields
+
+                    #form.on 'close', -> done null, fields
+
+                (done) ->
+                    # if the stream has a filename attribute, it's the file
+                    # otherwise it's just a field
+                    fileStream = null
+                    form.on 'part', (part) ->
+                        console.log "got part"
+                        done null, part if part.filename
+
+            ], (err, results) ->
+                [fields, fileStream] = results
+                callback err, fields, fileStream
+
+            form.on 'error', callback
+            form.parse req # start the parsing
+
+        # check what to do with the file
+        (fields, fileStream, done) ->
+            console.log "prepare the upload"
+            if fileStream?
+                name = if fields.name? then fields.name else fileStream.filename
+                if req.doc.binary?[name]?
+                    db.get req.doc.binary[name].id, (err, binary) ->
+                        done err, binary, name, fileStream, req.doc
                 else
-                    newBin = {}
+                    binary = docType: "Binary"
+                    db.save binary, (err, binary) ->
+                        done err, binary, name, fileStream, req.doc
+            else
+                error = new Error "No file sent"
+                error.status = 400
+                done error
 
-                newBin[name] = bin
-                db.merge doc._id, binary: newBin, (err) ->
-                    deleteFiles req.files
-                    res.send 201, success: true
-                    next()
+        # manages database interaction
+        (binary, name, fileStream, doc, done) ->
+            console.log "upload"
+            fileData =
+                name: name
+                "content-type": fileStream.headers['content-type']
 
-        fs.createReadStream(file.path).pipe stream
+            # mandatory otherwise the file isn't in the request
+            fileStream.path = name
 
+            stream = db.saveAttachment binary, fileData, (err, binDoc) ->
+                if err?
+                    done new Error err.error
+                else
+                    bin = id: binDoc.id, rev: binDoc.rev
+                    newBin = if doc.binary? then doc.binary else {}
 
-    if req.files["file"]?
-        file = req.files["file"]
-        if req.body.name? then name = req.body.name else name = file.name
-        if req.doc.binary?[name]?
-            db.get req.doc.binary[name].id, (err, binary) ->
-                attach binary, name, file, req.doc
+                    newBin[name] = bin
+                    db.merge doc._id, binary: newBin, done
+
+            fileStream.pipe stream
+
+    ], (err, results) ->
+        if err? then next err
         else
-            binary =
-                docType: "Binary"
-            db.save binary, (err, binary) ->
-                attach binary, name, file, req.doc
-    else
-        err = new Error "No file sent"
-        err.status = 400
-        next err
-
+            res.send 201, success: true
+            next()
 
 # GET /data/:id/binaries/:name/
 module.exports.get = (req, res, next) ->
@@ -88,7 +133,7 @@ module.exports.remove = (req, res, next) ->
             delete req.doc.binary
         db.save req.doc, (err) ->
             db.get id, (err, binary) ->
-                if binary?                    
+                if binary?
                     dbHelper.remove binary, (err) ->
                         if err? and err.error = "not_found"
                             err = new Error "not found"
@@ -100,7 +145,7 @@ module.exports.remove = (req, res, next) ->
                         else
                             res.send 204, success: true
                             next()
-                else                    
+                else
                     err = new Error "not found"
                     err.status = 404
                     next err

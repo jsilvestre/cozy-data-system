@@ -1,8 +1,13 @@
 americano = require 'americano'
+bodyParser = require 'body-parser'
+
+GB = 1024 * 1024 * 1024
+
 config =
+    maxFileSize: 2 * GB
     common:
         use: [
-            americano.bodyParser()
+            bodyParser()
             americano.methodOverride()
             americano.errorHandler
                 dumpExceptions: true

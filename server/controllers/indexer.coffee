@@ -12,13 +12,15 @@ module.exports.index = (req, res, next) ->
     data =
         doc: req.doc
         fields: req.body.fields
-    client.post "index/", data, (err, response, body) ->
-        if err or response.statusCode isnt 200
-            next new Error err
-        else
-            res.send 200, success: true
-            next()
-    , false # body = indexation succeeds, do not parse
+    res.send 200, success: true
+    next()
+    #client.post "index/", data, (err, response, body) ->
+    #    if err or response.statusCode isnt 200
+    #        next new Error err
+    #    else
+    #        res.send 200, success: true
+    #        next()
+    #, false # body = indexation succeeds, do not parse
 
 # POST /data/search/
 # Returns documents matching given text query

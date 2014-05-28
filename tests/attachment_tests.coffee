@@ -8,7 +8,7 @@ db = require("#{helpers.prefix}server/helpers/db_connect_helper").db_connect()
 
 serverUrl = "http://#{helpers.options.serverHost}:#{helpers.options.serverPort}/"
 
-describe "Attachments", ->
+describe.skip "Attachments", ->
 
     # Clear DB, create a new one, then init data for tests.
     before helpers.clearDB db
