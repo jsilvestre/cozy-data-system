@@ -7,6 +7,8 @@ productionOrTest = process.env.NODE_ENV is "production" or
     process.env.NODE_ENV is "test"
 
 
+module.exports.getPermissions = -> return permissions
+
 ## function checkToken (auth, tokens, callback)
 ## @auth {string} Field 'authorization' of request
 ## @tokens {tab} Tab which contains applications and their tokens
@@ -165,4 +167,11 @@ module.exports.init = (callback) ->
                         initApplication appli, () ->
                     callback tokens, permissions
     else
-        callback tokens, permissions
+        db.view 'application/all', (err, res) ->
+            if err then callback new Error("Error in view")
+            else
+                # Search application
+                res.forEach (appli) ->
+                    initApplication appli, () ->
+                callback tokens, permissions
+        #callback tokens, permissions

@@ -10,10 +10,18 @@ indexer = require './indexer'
 mails = require './mails'
 user = require './user'
 account = require './accounts'
+offline = require './offline'
 
 utils = require '../middlewares/utils'
 
 module.exports =
+
+    'couchapi/offlineapp/*':
+        all: offline.index
+
+    'couchapi':
+        get: offline.index
+        options: offline.index
 
     # Information page
     '':  get: data.index
